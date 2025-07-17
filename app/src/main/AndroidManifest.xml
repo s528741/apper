@@ -2,35 +2,34 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Network permissions for VPN and web access -->
+    <!-- Essential Network permissions (MINIMAL REQUIRED) -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     
-    <!-- VPN permissions -->
+    <!-- VPN permissions (SECURITY CORE FEATURE) -->
     <uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
     
-    <!-- Accessibility permission for universal app monitoring -->
+    <!-- Accessibility permission (AI MONITORING CORE FEATURE) -->
     <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE" />
     
-    <!-- Foreground service permissions -->
+    <!-- Foreground service permissions (BACKGROUND PROTECTION) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    
+    <!-- Notification permissions (USER ALERTS) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     
-    <!-- System overlay permissions for UI elements -->
+    <!-- System overlay permissions (WARNING DISPLAYS) -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     
-    <!-- Boot and wake permissions for background operation -->
+    <!-- Boot receiver (AUTO-START PROTECTION) -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
     
-    <!-- Query all packages to detect apps -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission" />
-    
-    <!-- Battery optimization exemption -->
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- REMOVED: Excessive permissions for security -->
+    <!-- REMOVED: CHANGE_NETWORK_STATE - not needed for VPN -->
+    <!-- REMOVED: WAKE_LOCK - can cause battery drain -->
+    <!-- REMOVED: QUERY_ALL_PACKAGES - privacy risk -->
+    <!-- REMOVED: REQUEST_IGNORE_BATTERY_OPTIMIZATIONS - user choice -->
 
     <application
         android:name=".ApperApplication"

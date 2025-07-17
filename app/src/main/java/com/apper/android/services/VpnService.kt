@@ -1,7 +1,9 @@
 package com.apper.android.services
 
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -10,6 +12,7 @@ import com.apper.android.core.AppConstants
 import com.apper.android.networking.ThreatDetector
 import com.apper.android.networking.VpnTunnel
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.InetSocketAddress
@@ -67,28 +70,136 @@ class ApperVpnService : VpnService() {
         try {
             Log.d(TAG, "Starting VPN service")
             
-            // Create VPN interface
-            vpnInterface = createVpnInterface()
+            // Validate prerequisites
+            if (!validateVpnPrerequisites()) {
+                Log.e(TAG, "VPN prerequisites not met")
+                notifyVpnFailure("VPN prerequisites not met")
+                return
+            }
+            
+            // Create VPN interface with retry logic
+            var attempts = 0
+            val maxAttempts = 3
+            
+            while (attempts < maxAttempts && vpnInterface == null) {
+                attempts++
+                Log.d(TAG, "VPN creation attempt $attempts/$maxAttempts")
+                
+                vpnInterface = createVpnInterface()
+                
+                if (vpnInterface == null && attempts < maxAttempts) {
+                    Thread.sleep(1000 * attempts) // Exponential backoff
+                }
+            }
             
             if (vpnInterface != null) {
                 isRunning = true
                 
                 serviceScope.launch {
-                    preferencesManager.setVpnEnabled(true)
-                    
-                    // Start packet processing
-                    processVpnPackets()
+                    try {
+                        preferencesManager.setVpnEnabled(true)
+                        
+                        // Start packet processing with error recovery
+                        processVpnPacketsWithRecovery()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error in VPN coroutine", e)
+                        handleVpnError(e)
+                    }
                 }
                 
                 Log.d(TAG, "VPN service started successfully")
             } else {
-                Log.e(TAG, "Failed to create VPN interface")
+                Log.e(TAG, "Failed to create VPN interface after $maxAttempts attempts")
+                notifyVpnFailure("Failed to establish VPN connection")
             }
             
-        } catch (e: Exception) {
-            Log.e(TAG, "Error starting VPN service", e)
+        } catch (SecurityException e) {
+            Log.e(TAG, "VPN permission denied", e)
+            notifyVpnFailure("VPN permission required")
+        } catch (Exception e) {
+            Log.e(TAG, "Unexpected error starting VPN service", e)
+            notifyVpnFailure("VPN service error: ${e.message}")
             stopVpn()
         }
+    }
+
+    private fun validateVpnPrerequisites(): Boolean {
+        return try {
+            // Check if VPN service is prepared
+            val intent = VpnService.prepare(this)
+            if (intent != null) {
+                Log.w(TAG, "VPN permission not granted")
+                return false
+            }
+            
+            // Check network connectivity
+            val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val networkInfo = connectivityManager.activeNetworkInfo
+            if (networkInfo == null || !networkInfo.isConnected) {
+                Log.w(TAG, "No active network connection")
+                return false
+            }
+            
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error validating VPN prerequisites", e)
+            false
+        }
+    }
+
+    private suspend fun processVpnPacketsWithRecovery() {
+        var consecutiveErrors = 0
+        val maxConsecutiveErrors = 5
+        
+        while (isRunning && !serviceJob.isCancelled) {
+            try {
+                processVpnPackets()
+                consecutiveErrors = 0 // Reset on successful processing
+            } catch (e: Exception) {
+                consecutiveErrors++
+                Log.e(TAG, "VPN packet processing error (attempt $consecutiveErrors)", e)
+                
+                if (consecutiveErrors >= maxConsecutiveErrors) {
+                    Log.e(TAG, "Too many consecutive VPN errors, restarting...")
+                    handleVpnError(e)
+                    break
+                } else {
+                    // Brief delay before retry
+                    delay(1000 * consecutiveErrors)
+                }
+            }
+        }
+    }
+
+    private fun handleVpnError(error: Exception) {
+        Log.e(TAG, "Handling VPN error", error)
+        
+        serviceScope.launch {
+            try {
+                // Stop current VPN
+                stopVpn()
+                
+                // Wait before restart attempt
+                delay(5000)
+                
+                // Attempt restart if service is still supposed to be running
+                if (preferencesManager.isVpnEnabled.first()) {
+                    Log.i(TAG, "Attempting VPN restart after error")
+                    startVpn()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during VPN recovery", e)
+                notifyVpnFailure("VPN recovery failed")
+            }
+        }
+    }
+
+    private fun notifyVpnFailure(message: String) {
+        // Send broadcast to notify other components of VPN failure
+        val intent = Intent(ACTION_VPN_FAILED).apply {
+            putExtra(EXTRA_ERROR_MESSAGE, message)
+        }
+        sendBroadcast(intent)
     }
 
     private fun stopVpn() {
@@ -321,8 +432,10 @@ class ApperVpnService : VpnService() {
         const val ACTION_START_VPN = "com.apper.android.START_VPN"
         const val ACTION_STOP_VPN = "com.apper.android.STOP_VPN"
         const val ACTION_THREAT_BLOCKED = "com.apper.android.THREAT_BLOCKED"
+        const val ACTION_VPN_FAILED = "com.apper.android.VPN_FAILED"
         
         const val EXTRA_BLOCKED_URL = "blocked_url"
         const val EXTRA_THREAT_TYPE = "threat_type"
+        const val EXTRA_ERROR_MESSAGE = "error_message"
     }
 } 
